@@ -1,0 +1,6 @@
+@Portal.Fornecedor.Api_HostAddress = http://localhost:5162
+
+GET {{Portal.Fornecedor.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
