@@ -1,5 +1,7 @@
 using Asp.Versioning;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Polly;
@@ -8,6 +10,7 @@ using Portal.Fornecedor.Api.Services;
 using Portal.Fornecedor.Api.Util;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -25,10 +28,17 @@ builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddScoped<IUser, AspNetUser>();
 
+// Configuração CSRF
+builder.Services.AddAntiforgery(options =>
+{
+    options.HeaderName = "X-XSRF-TOKEN"; // Nome do cabeçalho CSRF
+});
+
 // Add services to the container.
 var appSettingsSection = builder.Configuration.GetSection("AppSettings");
 
-builder.Services.AddControllers();
+// Registre o antiforgery e os controladores
+builder.Services.AddControllersWithViews();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(option =>
@@ -99,7 +109,10 @@ builder.Services.AddHttpClient<IServiceGoogleCaptcha, ServiceGoogleCaptcha>(http
 });
 
 builder.Services.AddScoped<JwtBuilder>();
-builder.Services.AddScoped<LNotifications>();   
+builder.Services.AddScoped<LNotifications>();
+
+/*proteção aos cookies*/
+builder.Services.AddDataProtection();
 
 builder.Services.AddCors(options =>
 {
@@ -138,9 +151,43 @@ builder.Services.Configure<AppJwtSettings>(appSettingsSection);
 var appSettings = appSettingsSection.Get<AppJwtSettings>();
 var key = Encoding.ASCII.GetBytes(appSettings?.SecretKey ?? "");
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
 .AddJwtBearer(options =>
 {
+    options.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            // Pegando o token criptografado do cookie
+            var encryptedToken = context.Request.Cookies["X-Access-Token"];
+
+            if (!string.IsNullOrEmpty(encryptedToken))
+            {
+                // Usando o serviço de proteção de dados para descriptografar o token
+                var dataProtector = context.HttpContext.RequestServices.GetRequiredService<IDataProtectionProvider>();
+                var protector = dataProtector.CreateProtector("X-Access-Token");
+
+                try
+                {
+                    // Descriptografando o token
+                    var decryptedToken = protector.Unprotect(encryptedToken);
+
+                    // Definindo o token descriptografado no contexto para validação JWT
+                    context.Token = decryptedToken;
+                }
+                catch (CryptographicException)
+                {
+                    // Se falhar a descriptografia, não processa o token
+                    context.NoResult();
+                }
+            }
+            return Task.CompletedTask;
+        }
+    };
     options.RequireHttpsMetadata = true;
     options.SaveToken = true;
     options.TokenValidationParameters = new TokenValidationParameters
@@ -169,11 +216,42 @@ else
     app.UseCors("Production");
 }
 
-//app.UseHttpsRedirection();
+// Configuração de CSRF
+app.Use(next => context =>
+{
+    if (context.Request.Path.StartsWithSegments("/api") &&
+        (context.Request.Method == "POST" ||
+         context.Request.Method == "PUT" ||
+        
+         context.Request.Method == "DELETE"))
+    {
+        var antiForgery = context.RequestServices.GetRequiredService<IAntiforgery>();
+        var tokenSet = antiForgery.GetTokens(context);
+        context.Response.Cookies.Append("XSRF-TOKEN", tokenSet.RequestToken,
+            new CookieOptions
+            {
+                HttpOnly = false, // Permite o acesso ao cookie via JavaScript
+                Secure = true, // Envia o cookie apenas via HTTPS
+                SameSite = SameSiteMode.Strict // Restrição ao mesmo site
+            });
+    }
+    return next(context);
+});
 
+// Permitir o uso de arquivos estáticos
+app.UseStaticFiles();
+
+app.UseHttpsRedirection();
 app.UseAuthorization();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Configuração de CSP
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.Add("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self';");
+    await next();
+});
 
 app.Run();
