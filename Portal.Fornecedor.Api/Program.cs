@@ -29,16 +29,16 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IUser, AspNetUser>();
 
 // Configuração CSRF
+builder.Services.AddControllersWithViews();
 builder.Services.AddAntiforgery(options =>
 {
-    options.HeaderName = "X-XSRF-TOKEN"; // Nome do cabeçalho CSRF
+    options.HeaderName = "X-XSRF-TOKEN"; // Nome do header que o Angular enviará
 });
 
 // Add services to the container.
 var appSettingsSection = builder.Configuration.GetSection("AppSettings");
 
-// Registre o antiforgery e os controladores
-builder.Services.AddControllersWithViews();
+
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(option =>
@@ -201,6 +201,8 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
+
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -216,27 +218,7 @@ else
     app.UseCors("Production");
 }
 
-// Configuração de CSRF
-app.Use(next => context =>
-{
-    if (context.Request.Path.StartsWithSegments("/api") &&
-        (context.Request.Method == "POST" ||
-         context.Request.Method == "PUT" ||
-        
-         context.Request.Method == "DELETE"))
-    {
-        var antiForgery = context.RequestServices.GetRequiredService<IAntiforgery>();
-        var tokenSet = antiForgery.GetTokens(context);
-        context.Response.Cookies.Append("XSRF-TOKEN", tokenSet.RequestToken,
-            new CookieOptions
-            {
-                HttpOnly = false, // Permite o acesso ao cookie via JavaScript
-                Secure = true, // Envia o cookie apenas via HTTPS
-                SameSite = SameSiteMode.Strict // Restrição ao mesmo site
-            });
-    }
-    return next(context);
-});
+
 
 // Permitir o uso de arquivos estáticos
 app.UseStaticFiles();
@@ -248,10 +230,10 @@ app.UseAuthorization();
 app.MapControllers();
 
 // Configuração de CSP
-app.Use(async (context, next) =>
-{
-    context.Response.Headers.Add("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self';");
-    await next();
-});
+//app.Use(async (context, next) =>
+//{
+//    context.Response.Headers.Add("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self';");
+//    await next();
+//});
 
 app.Run();

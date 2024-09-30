@@ -1,6 +1,8 @@
 ﻿using Asp.Versioning;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -51,11 +53,17 @@ namespace Portal.Fornecedor.Api.V1.Controllers
         {
             if (!ModelState.IsValid) return ReturnModelState(ModelState);
             return await ExecControllerApiGatewayAsync(() => _userService.UserRegisterRequestAsync(userRegister));
-
         }
 
+        [HttpGet("GetXSRFToken")]
+        public async Task<IActionResult> GetXSRFToken([FromServices] IAntiforgery antiforgery)
+        {
+            var tokens = antiforgery.GetAndStoreTokens(HttpContext);
+            HttpContext.Response.Cookies.Append("XSRF-TOKEN", tokens.RequestToken, new CookieOptions { HttpOnly = false });
+            return Ok(new { token = tokens.RequestToken });
+        }
 
-        [HttpPost("CelciusPost/{celcius}")]
+        [HttpPost("CelciusPost")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> CelciusPost([FromBody] CelciusPostRequest celciusPostRequest )
         => await ExecControllerAsync(() => _tempConvertClient.CelsiusToFahrenheitAsync(celciusPostRequest.Celcius));

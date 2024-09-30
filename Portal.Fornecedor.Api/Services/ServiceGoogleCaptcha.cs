@@ -27,9 +27,6 @@ namespace Portal.Fornecedor.Api.Services
             var secretKey =  _configuration.GetSection("Google:CaptchaSecretKey").Value;
 
             var ret = new BaseResponseHttpApi<CaptchaResponse>();
-
-
-
             var content = new FormUrlEncodedContent(new[]
                {
                     new KeyValuePair<string, string>("secret", secretKey),
